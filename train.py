@@ -414,7 +414,7 @@ def main():
                     model, sequence_ids=exp.sequences, attention_mask=exp.attention_mask
                 )
 
-                loss, kl = objective(log_probs=log_probs, experience=exp)
+                loss, kl = objective.forward(log_probs=log_probs, experience=exp)
 
                 if not loss.isfinite():
                     if dist.get_rank() == 0:
