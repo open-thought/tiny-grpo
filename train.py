@@ -199,11 +199,12 @@ def read_prompts(
 def setup_dist():
     """Initialize process group and create device mesh"""
     dist.init_process_group("nccl")
-    
+
     # Get local world size and rank
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     torch.cuda.set_device(local_rank)
-    
+
+
 def load_model_fsdp(
     model_name_or_path: str,
     reduce_fp32: bool = False,
@@ -213,39 +214,42 @@ def load_model_fsdp(
     """Load model and apply composable FSDP"""
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
     tokenizer.pad_token = tokenizer.eos_token
-    
+
     model = LlamaForCausalLM.from_pretrained(
         model_name_or_path,
         trust_remote_code=trust_remote_code,
         attn_implementation="flash_attention_2",
         # torch_dtype=torch.bfloat16,
     ).to(dist.get_rank())
-    
+
     # Define mixed precision policy
     mp_policy = MixedPrecisionPolicy(
         param_dtype=torch.bfloat16,
-        reduce_dtype=torch.float32 if reduce_fp32 else None
+        reduce_dtype=torch.float32 if reduce_fp32 else None,
     )
 
     # Apply FSDP to transformer layers
     for layer_id, transformer_block in enumerate(model.model.layers):
         # Reshard all layers except the last one if enabled
-        should_reshard = reshard_after_forward and layer_id < len(model.model.layers) - 1
-        
+        should_reshard = (
+            reshard_after_forward and layer_id < len(model.model.layers) - 1
+        )
+
         fully_shard(
             transformer_block,
             mp_policy=mp_policy,
             reshard_after_forward=should_reshard,
         )
-    
+
     # Apply FSDP to the whole model
     fully_shard(
         model,
         mp_policy=mp_policy,
         reshard_after_forward=reshard_after_forward,
     )
-    
+
     return model, tokenizer
+
 
 def main():
     seed = 42
@@ -278,21 +282,21 @@ def main():
 
     # Load models with composable FSDP
     reference_model, _ = load_model_fsdp(
-        model_name, 
+        model_name,
         reduce_fp32=reduce_fp32,
-        reshard_after_forward=reshard_after_forward
+        reshard_after_forward=reshard_after_forward,
     )
     model, tokenizer = load_model_fsdp(
         model_name,
         reduce_fp32=reduce_fp32,
-        reshard_after_forward=reshard_after_forward
+        reshard_after_forward=reshard_after_forward,
     )
-    
+
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     reference_model.eval()
     model.train()
-    
+
     # Enable gradient checkpointing
     model.gradient_checkpointing_enable(
         gradient_checkpointing_kwargs={"use_reentrant": False}
@@ -307,10 +311,10 @@ def main():
         and x["num_digits"] <= 3,
         max_rows=64 * 1024,
     )
-    
+
     if dist.get_rank() == 0:
         print(f"found {len(prompts)} matching prompts")
-    
+
     prompt_loader = DataLoader(
         prompts,
         batch_size=rollouts_per_step,
@@ -355,7 +359,7 @@ def main():
                         f"rollout q='{q}', a='{a}', returns={returns.sum().item():.2f}, "
                         f"replay_buffer_size={len(replay_buffer)}, sequence_ids={sequence_ids.shape}"
                     )
-                
+
                 rollout_returns.append(returns.cpu())
 
                 advantages = group_advantages(returns)
@@ -404,10 +408,10 @@ def main():
 
         for step_epoch in range(epochs_per_step):
             model.train()
-            
-            for i,exp in enumerate(experience_sampler):
+
+            for i, exp in enumerate(experience_sampler):
                 exp = exp.to(dist.get_rank())
-                
+
                 optimizer.zero_grad()
 
                 log_probs = sequences_log_probs(
@@ -426,8 +430,12 @@ def main():
                     continue
 
                 loss.backward()
-                grad_norm = clip_grad_norm_(model.parameters(), max_norm=max_norm).full_tensor() # gather the grad_norm from all the gpus
-                
+
+                # gather the grad_norm from all the gpus
+                grad_norm = clip_grad_norm_(
+                    model.parameters(), max_norm=max_norm
+                ).full_tensor()
+
                 if dist.get_rank() == 0:
                     print(f"{step_epoch}: kl={kl: .4f}, grad_norm={grad_norm: .4f}")
                     wandb.log({"kl": kl, "grad_norm": grad_norm})
@@ -449,6 +457,7 @@ def main():
 
     # Cleanup
     dist.destroy_process_group()
+
 
 if __name__ == "__main__":
     main()
