@@ -251,7 +251,6 @@ def load_model_fsdp(
 def main():
     seed = 42
     wandb_project = None  # "tiny_grpo"
-    device_index = 0
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
     checkpoint_path = Path("./output")
     checkpoint_interval = 20
@@ -264,8 +263,8 @@ def main():
     reduce_fp32 = False
     reshard_after_forward = False
 
-    group_size = 2
-    rollouts_per_step = 4
+    group_size = 12
+    rollouts_per_step = 32
     epochs_per_step = 1
     max_norm = 1.0  # gradient clipping
 
