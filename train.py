@@ -407,7 +407,7 @@ def main():
             model.train()
 
             for exp in experience_sampler:
-                exp = exp.cuda()
+                exp = exp.to(dist.get_rank())
                 
                 optimizer.zero_grad()
 
@@ -430,8 +430,9 @@ def main():
                 grad_norm = clip_grad_norm_(model.parameters(), max_norm=max_norm)
                 
                 if dist.get_rank() == 0:
-                    print(f"{step_epoch}: kl={kl: .4f}, grad_norm={grad_norm: .4f}")
-                    wandb.log({"kl": kl, "grad_norm": grad_norm})
+                    grad_norm_full = grad_norm.full_tensor()
+                    print(f"{step_epoch}: kl={kl: .4f}, grad_norm={grad_norm_full: .4f}")
+                    wandb.log({"kl": kl, "grad_norm": grad_norm_full})
 
                 optimizer.step()
 
