@@ -196,7 +196,6 @@ def read_prompts(
     return rows
 
 
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 def setup_dist():
     """Initialize process group and create device mesh"""
     dist.init_process_group("nccl")
