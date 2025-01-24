@@ -21,7 +21,13 @@ pip install flash-attn --no-build-isolation
 3. Play with the source in `train.py`
 
 ```
-python train.py
+torchrun --nproc_per_node=1 train.py
+```
+
+with multiple gpu
+
+```
+torchrun --nproc_per_node=8 train.py
 ```
 
 ### Inspiration
