@@ -20,6 +20,7 @@ from transformers import (
     LlamaForCausalLM,
     GenerationConfig,
 )
+from ckpt_utils import save_checkpoint
 from loss import approx_kl_divergence, GRPOLoss
 from replay_buffer import ReplayBuffer, Experience, join_experience_batch
 
@@ -402,15 +403,11 @@ def main():
             drop_last=True,
             collate_fn=join_experience_batch,
         )
-        print(f"dataloader loaded {len(replay_buffer)} experiences, epochs_per_step: {epochs_per_step}")
 
         for step_epoch in range(epochs_per_step):
             model.train()
             
-            print(f"step_epoch: {step_epoch}")
-
             for i,exp in enumerate(experience_sampler):
-                print("HERE")
                 exp = exp.to(dist.get_rank())
                 
                 optimizer.zero_grad()
@@ -433,7 +430,6 @@ def main():
                 loss.backward()
                 grad_norm = clip_grad_norm_(model.parameters(), max_norm=max_norm).full_tensor() # gather the grad_norm from all the gpus
                 
-                print(f"i: {i}/{len(experience_sampler)}")
                 if dist.get_rank() == 0:
                     print(f"{step_epoch}: kl={kl: .4f}, grad_norm={grad_norm: .4f}")
                     wandb.log({"kl": kl, "grad_norm": grad_norm})
@@ -442,16 +438,16 @@ def main():
 
         # Save checkpoint only on rank 0
         if (
-            dist.get_rank() == 0
-            and checkpoint_path is not None
+            checkpoint_path is not None
             and checkpoint_interval is not None
             and (k + 1) % checkpoint_interval == 0
         ):
-            torch.save(model.state_dict(), checkpoint_path / f"step_{k}.pt")
+            print(f"saving checkpoint to {checkpoint_path / f'step_{k}.pt'}")
+            save_checkpoint(model, optimizer, checkpoint_path / f"step_{k}.pt")
 
     # Final save on rank 0
     if checkpoint_path is not None and dist.get_rank() == 0:
-        torch.save(model.state_dict(), checkpoint_path / f"step_{k}.pt")
+        save_checkpoint(model, optimizer, checkpoint_path / f"step_{k}.pt")
 
     # Cleanup
     dist.destroy_process_group()
