@@ -263,8 +263,8 @@ def main():
     reduce_fp32 = False
     reshard_after_forward = False
 
-    group_size = 12
-    rollouts_per_step = 32
+    group_size = 2
+    rollouts_per_step = 4
     epochs_per_step = 1
     max_norm = 1.0  # gradient clipping
 
@@ -402,11 +402,15 @@ def main():
             drop_last=True,
             collate_fn=join_experience_batch,
         )
+        print(f"dataloader loaded {len(replay_buffer)} experiences, epochs_per_step: {epochs_per_step}")
 
         for step_epoch in range(epochs_per_step):
             model.train()
+            
+            print(f"step_epoch: {step_epoch}")
 
-            for exp in experience_sampler:
+            for i,exp in enumerate(experience_sampler):
+                print("HERE")
                 exp = exp.to(dist.get_rank())
                 
                 optimizer.zero_grad()
@@ -427,12 +431,12 @@ def main():
                     continue
 
                 loss.backward()
-                grad_norm = clip_grad_norm_(model.parameters(), max_norm=max_norm)
+                grad_norm = clip_grad_norm_(model.parameters(), max_norm=max_norm).full_tensor() # gather the grad_norm from all the gpus
                 
+                print(f"i: {i}/{len(experience_sampler)}")
                 if dist.get_rank() == 0:
-                    grad_norm_full = grad_norm.full_tensor()
-                    print(f"{step_epoch}: kl={kl: .4f}, grad_norm={grad_norm_full: .4f}")
-                    wandb.log({"kl": kl, "grad_norm": grad_norm_full})
+                    print(f"{step_epoch}: kl={kl: .4f}, grad_norm={grad_norm: .4f}")
+                    wandb.log({"kl": kl, "grad_norm": grad_norm})
 
                 optimizer.step()
 
